@@ -28,18 +28,18 @@ browser = webdriver.Chrome()
 browser.maximize_window()
 
 playerSearch_url = 'https://www.nba.com/stats/players/traditional/?sort=OREB&dir=-1&Season=2020-21&SeasonType=Regular%20Season'
-gameBoxscore_url = 'https://www.nba.com/stats/teams/boxscores/'
+gameBoxscore_url = 'https://www.nba.com/stats/teams/boxscores/?Season=2020-21&SeasonType=Regular%20Season'
 
 # Scrape Player Stats
-browser.get(playerSearch_url)
+#browser.get(playerSearch_url)
 
-# click drop down to show all stats
-browser.find_element_by_xpath('/html/body/main/div/div/div[2]/div/div/nba-stat-table/div[1]/div/div/select/option[1]').click()
+# click drop down to show all game stats
+#browser.find_element_by_xpath('/html/body/main/div/div/div[2]/div/div/nba-stat-table/div[1]/div/div/select/option[1]').click()
 
-player_search_results = requests.get(browser.current_url)
-playerPage_html = browser.execute_script("return document.body.innerHTML")
+#player_search_results = requests.get(browser.current_url)
+#playerPage_html = browser.execute_script("return document.body.innerHTML")
 
-playerPage = soup(playerPage_html, "html.parser")
+#playerPage = soup(playerPage_html, "html.parser")
 
 # Scrape Team Box Scores
 browser.get(gameBoxscore_url)
@@ -48,6 +48,18 @@ boxscore_search_results = requests.get(browser.current_url)
 boxscore_html = browser.execute_script('return document.body.innerHTML')
 
 boxscore_page = soup(boxscore_html, 'html.parser')
+boxscore_tableContainer = boxscore_page.find('div', {'class': 'nba-stat-table__overflow'})
+game_container = boxscore_tableContainer.find('tbody')
+game_container = game_container.findAll('tr')
+
+parent_link = 'https://www.nba.com'
+game_links = []
+for game in game_container:
+    g = game.select_one('td:nth-child(3)')
+    game_links.append(parent_link + g.find('a')['href'])
+
+# reverse order of list so can start with first games
+game_links = game_links[::-1]
 
 browser.quit()
 
@@ -62,7 +74,8 @@ player_df = player_df[['PLAYER', 'TEAM', 'W', 'L', 'AGE', 'PTS', 'FG%',
                           '3P%', 'FT%', 'REB', 'AST', 'TOV', 'STL',
                           'BLK', 'PF']]
 
-boxscore_tableContainer = boxscore_page.find('div', {'class': 'nba-stat-table__overflow'})
+
+
 boxscore_df = pd.read_html(str(boxscore_tableContainer))[0]
 
 boxscore_df.rename(columns={boxscore_df.columns[1]: 'Vs'}, inplace=True)
