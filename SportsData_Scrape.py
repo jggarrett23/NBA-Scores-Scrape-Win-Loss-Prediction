@@ -13,7 +13,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.options import Options
 
+from collections import defaultdict
 from sklearn.linear_model import LogisticRegression
 
 import time
@@ -24,7 +26,14 @@ startTime = datetime.now()
 
 headers = {'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36'}
 
-browser = webdriver.Chrome()
+# read in team names and abbreviations
+nba_teams_dict = {}
+with open('nba_teamNames.txt') as f:
+    for line in f:
+        (key, val) = line.split(',')
+        nba_teams_dict[key] = val.strip()
+
+browser = webdriver.Chrome('C:\Program Files (x86)\Google\Chrome\Application\chromedriver')
 browser.maximize_window()
 
 playerSearch_url = 'https://www.nba.com/stats/players/traditional/?sort=OREB&dir=-1&Season=2020-21&SeasonType=Regular%20Season'
@@ -49,19 +58,47 @@ boxscore_html = browser.execute_script('return document.body.innerHTML')
 
 boxscore_page = soup(boxscore_html, 'html.parser')
 boxscore_tableContainer = boxscore_page.find('div', {'class': 'nba-stat-table__overflow'})
+
 game_container = boxscore_tableContainer.find('tbody')
 game_container = game_container.findAll('tr')
 
-parent_link = 'https://www.nba.com'
-game_links = []
-for game in game_container:
-    g = game.select_one('td:nth-child(3)')
-    game_links.append(parent_link + g.find('a')['href'])
+parent_link = 'https://www.nba.com/'
 
-# reverse order of list so can start with first games
-game_links = game_links[::-1]
+team_boxscores_dict = defaultdict(dict)
+# select even game number to avoid duplicates
+for iGame in range(0, len(game_container), 2):
+    game = game_container[iGame]
+    g = game.select_one('td:nth-child(2)')
+    game_date = game.select_one('td:nth-child(3)').text.strip()
+
+    # get games boxscore
+    browser.get(parent_link + game.select_one('td:nth-child(2)').find('a')['href'][7:])
+
+    browser.execute_script("window.scrollTo(0,500)")
+
+    browser.find_element_by_id('box-score').click()
+
+    team_boxscores = browser.find_elements_by_tag_name('table')
+    team_name_containers = browser.find_elements_by_class_name('p-4')
+    for iTeam, bx_score in enumerate(team_boxscores):
+
+        # first team_name_container is of final score, dont need
+        team_name = team_name_containers[iTeam+1].find_element_by_tag_name('span').text
+
+        team_nameAbv = nba_teams_dict[team_name]
+
+        # have to select tables parent to read into pandas
+        bx_parent = bx_score.find_element_by_xpath('..')
+        bx_scoreDF = pd.read_html(bx_parent.get_attribute('innerHTML'))[0]
+
+        team_boxscores_dict[team_nameAbv][game_date] = bx_scoreDF
 
 browser.quit()
+
+
+
+
+
 
 player_tableContainer = playerPage.find('div', {'class': 'nba-stat-table__overflow'})
 
