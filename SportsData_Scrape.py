@@ -76,7 +76,7 @@ parent_link = 'https://www.nba.com/'
 
 # check if we have already scraped games. If so, then load those so we dont have to start from beginning
 if os.path.isfile(os.path.join(os.path.join(saveDir, 'teamBoxscores_dict.pickle'))):
-    gameList_start, team_boxscore_dict = pickle.load(open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'rb'))
+    gameList_start, team_boxscores_dict = pickle.load(open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'rb'))
 else:
     gameList_start = 0
     team_boxscores_dict = defaultdict(dict)
