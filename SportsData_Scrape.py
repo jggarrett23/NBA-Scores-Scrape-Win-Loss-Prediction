@@ -81,7 +81,8 @@ else:
     gameList_start = 0
     team_boxscores_dict = defaultdict(dict)
 
-def scrape_boxscores -> Dict:
+
+def scrape_boxscores() -> Dict:
     """
     Scrapes the boxes scores of all games in the games list.
     Returns a dictionary containing dataframes of each game, with keys for teams and game date.
@@ -112,7 +113,8 @@ def scrape_boxscores -> Dict:
                 team_name = team_name_containers[iTeam + 1].find_element_by_tag_name('span').text
 
                 # make sure that the team name matches with the dict keys
-                teamKey = [key for key in nba_teams_dict.keys() for substring in team_name.split(' ') if substring in key][0]
+                teamKey = \
+                [key for key in nba_teams_dict.keys() for substring in team_name.split(' ') if substring in key][0]
 
                 team_nameAbv = nba_teams_dict[teamKey]
 
@@ -133,6 +135,7 @@ def scrape_boxscores -> Dict:
     pickle.dump([iGame, team_boxscores_dict], open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
 
     return team_boxscores_dict
+
 
 # player_tableContainer = playerPage.find('div', {'class': 'nba-stat-table__overflow'})
 # 
