@@ -1,23 +1,14 @@
-#  TODO: Determine questions. E.g., predicting wins based off individual player points or which team would win given their players.
+#  TODO: Save list of game links already scraped to decrease scraping time
 
 import pandas as pd
 import numpy as np
-import re
-import bs4
 from bs4 import BeautifulSoup as soup
 import requests
-import urllib3
-import openpyxl
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.chrome.options import Options
 import pickle
-
 from collections import defaultdict
 from sklearn.linear_model import LogisticRegression
+import re
 
 import time
 import os
@@ -69,38 +60,72 @@ boxscore_html = browser.execute_script('return document.body.innerHTML')
 boxscore_page = soup(boxscore_html, 'html.parser')
 boxscore_tableContainer = boxscore_page.find('div', {'class': 'nba-stat-table__overflow'})
 
+nGames_text = boxscore_page.find('div',{'class':'stats-table-pagination__info'}).getText().split('|')[0]
+nGames = int(re.findall(r'\b\d+\b', nGames_text)[0])
+
+
+# Scrape Wins / Losses For Each Game
+def scrape_gameSummary_boxscore () -> pd.DataFrame:
+
+    boxscore_df = pd.read_html(str(boxscore_tableContainer))[0]
+
+    boxscore_df.rename(columns={boxscore_df.columns[1]: 'Vs', boxscore_df.columns[2]: 'Date'}, inplace=True)
+
+    boxscore_df = boxscore_df[['Team', 'Vs', 'Date', 'W/L', 'PTS', 'FG%',
+                               '3P%', 'FT%', 'REB', 'AST', 'STL', 'BLK', 'TOV']]
+    # clean up matchup column
+    boxscore_df['Vs'] = boxscore_df.apply(
+        lambda row: row['Vs'].replace(row['Team'], '').replace('vs. ', '').replace('@ ', ''),
+        axis=1)
+
+    # Transform W/L column to binary outcome
+    boxscore_df['W/L'] = boxscore_df.apply(lambda row: 1 if row['W/L'] == 'W' else 0, axis=1)
+
+    boxscore_df.to_csv(os.path.join(saveDir, 'all_gamesBoxscores_summary.csv'), index=False)
+
+    return boxscore_df
+
+
 game_container = boxscore_tableContainer.find('tbody')
 game_container = game_container.findAll('tr')
 
-parent_link = 'https://www.nba.com/'
+# Check for previously scraped games to avoid redundancy
+if os.path.isfile(os.path.join(saveDir, 'scraped_gamesList.pickle')):
+    prevScraped_games = pickle.load(open(os.path.join(saveDir, 'scraped_gamesList.pickle'), 'rb'))
 
-# check if we have already scraped games. If so, then load those so we dont have to start from beginning
-if os.path.isfile(os.path.join(os.path.join(saveDir, 'teamBoxscores_dict.pickle'))):
-    gameList_start, team_boxscores_dict = pickle.load(open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'rb'))
+    # remove duplicate games
+    game_container = [game for game in game_container if game.select_one('td:nth-child(2)').find('a')['href'][7:] not in prevScraped_games]
+
+    team_boxscores_dict = pickle.load(open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'rb'))
 else:
-    gameList_start = 0
+    prevScraped_games = list()
     team_boxscores_dict = defaultdict(dict)
 
+parent_link = 'https://www.nba.com/'
 
-def scrape_boxscores() -> Dict:
+
+def scrape_player_gameBoxscores() -> Dict:
     """
     Scrapes the boxes scores of all games in the games list.
     Returns a dictionary containing dataframes of each game, with keys for teams and game date.
     :rtype: Dict
     """
     # select even game number to avoid duplicates
-    for iGame in tqdm(range(gameList_start, len(game_container), 2)):
+    #for iGame in tqdm(range(0, len(game_container), 2)):
+    for iGame in tqdm(range(0, 20, 2)):
         game = game_container[iGame]
         g = game.select_one('td:nth-child(2)')
         game_date = game.select_one('td:nth-child(3)').text.strip()
 
         # insert a sleep in the script to prevent scraping too fast
-        sleep_time = 60 * np.random.random()  # seconds
-        time.sleep(sleep_time)
+        #sleep_time = 60 * np.random.random()  # seconds
+        #time.sleep(sleep_time)
 
         # get games boxscore
         try:
-            browser.get(parent_link + game.select_one('td:nth-child(2)').find('a')['href'][7:])
+            game_boxscore_link = game.select_one('td:nth-child(2)').find('a')['href'][7:]
+
+            browser.get( parent_link + game_boxscore_link)
 
             browser.execute_script("window.scrollTo(0,500)")
 
@@ -124,21 +149,27 @@ def scrape_boxscores() -> Dict:
 
                 team_boxscores_dict[team_nameAbv][game_date] = bx_scoreDF
 
+                prevScraped_games.append(game_boxscore_link)
+
         except:
 
-            pickle.dump([iGame, team_boxscores_dict], open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
+            pickle.dump(team_boxscores_dict, open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
+            pickle.dump(prevScraped_games, open(os.path.join(saveDir, 'scraped_gamesList.pickle'), 'wb'))
+
+            browser.quit()
             sys.exit()
 
     browser.quit()
 
     # save boxscores
-    pickle.dump([iGame, team_boxscores_dict], open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
+    pickle.dump(team_boxscores_dict, open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
+    pickle.dump(prevScraped_games, open(os.path.join(saveDir, 'scraped_gamesList.pickle'), 'wb'))
 
     return team_boxscores_dict
 
 
 # player_tableContainer = playerPage.find('div', {'class': 'nba-stat-table__overflow'})
-# 
+#
 # player_df = pd.read_html(str(player_tableContainer))[0]
 
 # columns of interest: player, team, age, pts (points),
@@ -148,20 +179,7 @@ def scrape_boxscores() -> Dict:
 #                        '3P%', 'FT%', 'REB', 'AST', 'TOV', 'STL',
 #                        'BLK', 'PF']]
 #
-# boxscore_df = pd.read_html(str(boxscore_tableContainer))[0]
-#
-# boxscore_df.rename(columns={boxscore_df.columns[1]: 'Vs'}, inplace=True)
-#
-# boxscore_df = boxscore_df[['Team', 'Vs', 'W/L', 'PTS', 'FG%',
-#                            '3P%', 'FT%', 'REB', 'AST', 'STL', 'BLK', 'TOV']]
-# # clean up matchup column
-# boxscore_df['Vs'] = boxscore_df.apply(
-#     lambda row: row['Vs'].replace(row['Team'], '').replace('vs. ', '').replace('@ ', ''),
-#     axis=1)
-#
-# # Transform W/L column to binary outcome
-# boxscore_df['W/L'] = boxscore_df.apply(lambda row: 1 if row['W/L'] == 'W' else 0, axis=1)
-#
+
 # # Exploratory Analysis
 #
 # # --- Team's Top 5 Scorers Predictive of W/L vs Other Team ---
@@ -185,4 +203,11 @@ def scrape_boxscores() -> Dict:
 # clf = LogisticRegression(random_state=0, penalty='l2', max_iter=200).fit(teams_avgPts, y)
 
 if __name__ == '__main__':
-    team_boxscores_dict = scrape_boxscores()
+
+    if os.path.isfile(os.path.join(saveDir, 'all_gamesBoxscores_summary.csv')):
+        boxscore_df = pd.read_csv(os.path.join(saveDir, 'all_gamesBoxscores_summary.csv'))
+
+        if len(boxscore_df) < nGames:
+            boxscore_df = scrape_gameSummary_boxscore()
+
+    team_boxscores_dict = scrape_player_gameBoxscores()
