@@ -111,8 +111,7 @@ def scrape_player_gameBoxscores() -> Dict:
     :rtype: Dict
     """
     # select even game number to avoid duplicates
-    #for iGame in tqdm(range(0, len(game_container), 2)):
-    for iGame in tqdm(range(0, 20, 2)):
+    for iGame in tqdm(range(0, len(game_container), 2)):
         game = game_container[iGame]
         g = game.select_one('td:nth-child(2)')
         game_date = game.select_one('td:nth-child(3)').text.strip()
