@@ -14,17 +14,26 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
+import pickle
 
 from collections import defaultdict
 from sklearn.linear_model import LogisticRegression
 
 import time
 import os
-from datetime import datetime, date
+import sys
+from datetime import datetime
+from tqdm import tqdm
+
+from typing import Dict
 
 startTime = datetime.now()
 
-headers = {'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36'}
+headers = {
+    'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36'}
+
+parentDir = r'D:\sportsScrape'
+saveDir = os.path.join(parentDir, r'data')
 
 # read in team names and abbreviations
 nba_teams_dict = {}
@@ -40,19 +49,20 @@ playerSearch_url = 'https://www.nba.com/stats/players/traditional/?sort=OREB&dir
 gameBoxscore_url = 'https://www.nba.com/stats/teams/boxscores/?Season=2020-21&SeasonType=Regular%20Season'
 
 # Scrape Player Stats
-#browser.get(playerSearch_url)
+# browser.get(playerSearch_url)
 
 # click drop down to show all game stats
-#browser.find_element_by_xpath('/html/body/main/div/div/div[2]/div/div/nba-stat-table/div[1]/div/div/select/option[1]').click()
+# browser.find_element_by_xpath('/html/body/main/div/div/div[2]/div/div/nba-stat-table/div[1]/div/div/select/option[1]').click()
 
-#player_search_results = requests.get(browser.current_url)
-#playerPage_html = browser.execute_script("return document.body.innerHTML")
+# player_search_results = requests.get(browser.current_url)
+# playerPage_html = browser.execute_script("return document.body.innerHTML")
 
-#playerPage = soup(playerPage_html, "html.parser")
+# playerPage = soup(playerPage_html, "html.parser")
 
 # Scrape Team Box Scores
 browser.get(gameBoxscore_url)
-browser.find_element_by_xpath('/html/body/main/div/div/div[2]/div/div/nba-stat-table/div[1]/div/div/select/option[1]').click()
+browser.find_element_by_xpath(
+    '/html/body/main/div/div/div[2]/div/div/nba-stat-table/div[1]/div/div/select/option[1]').click()
 boxscore_search_results = requests.get(browser.current_url)
 boxscore_html = browser.execute_script('return document.body.innerHTML')
 
@@ -64,92 +74,112 @@ game_container = game_container.findAll('tr')
 
 parent_link = 'https://www.nba.com/'
 
-team_boxscores_dict = defaultdict(dict)
-# select even game number to avoid duplicates
-for iGame in range(0, len(game_container), 2):
-    game = game_container[iGame]
-    g = game.select_one('td:nth-child(2)')
-    game_date = game.select_one('td:nth-child(3)').text.strip()
+# check if we have already scraped games. If so, then load those so we dont have to start from beginning
+if os.path.isfile(os.path.join(os.path.join(saveDir, 'teamBoxscores_dict.pickle'))):
+    gameList_start, team_boxscore_dict = pickle.load(open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'rb'))
+else:
+    gameList_start = 0
+    team_boxscores_dict = defaultdict(dict)
 
-    # get games boxscore
-    browser.get(parent_link + game.select_one('td:nth-child(2)').find('a')['href'][7:])
+def scrape_boxscores -> Dict:
+    """
+    Scrapes the boxes scores of all games in the games list.
+    Returns a dictionary containing dataframes of each game, with keys for teams and game date.
+    :rtype: Dict
+    """
+    # select even game number to avoid duplicates
+    for iGame in tqdm(range(gameList_start, len(game_container), 2)):
+        game = game_container[iGame]
+        g = game.select_one('td:nth-child(2)')
+        game_date = game.select_one('td:nth-child(3)').text.strip()
 
-    browser.execute_script("window.scrollTo(0,500)")
+        # insert a sleep in the script to prevent scraping too fast
+        sleep_time = 60 * np.random.random()  # seconds
+        time.sleep(sleep_time)
 
-    browser.find_element_by_id('box-score').click()
+        # get games boxscore
+        try:
+            browser.get(parent_link + game.select_one('td:nth-child(2)').find('a')['href'][7:])
 
-    team_boxscores = browser.find_elements_by_tag_name('table')
-    team_name_containers = browser.find_elements_by_class_name('p-4')
-    for iTeam, bx_score in enumerate(team_boxscores):
+            browser.execute_script("window.scrollTo(0,500)")
 
-        # first team_name_container is of final score, dont need
-        team_name = team_name_containers[iTeam+1].find_element_by_tag_name('span').text
+            browser.find_element_by_id('box-score').click()
 
-        team_nameAbv = nba_teams_dict[team_name]
+            team_boxscores = browser.find_elements_by_tag_name('table')
+            team_name_containers = browser.find_elements_by_class_name('p-4')
+            for iTeam, bx_score in enumerate(team_boxscores):
+                # first team_name_container is of final score, dont need
+                team_name = team_name_containers[iTeam + 1].find_element_by_tag_name('span').text
 
-        # have to select tables parent to read into pandas
-        bx_parent = bx_score.find_element_by_xpath('..')
-        bx_scoreDF = pd.read_html(bx_parent.get_attribute('innerHTML'))[0]
+                # make sure that the team name matches with the dict keys
+                teamKey = [key for key in nba_teams_dict.keys() for substring in team_name.split(' ') if substring in key][0]
 
-        team_boxscores_dict[team_nameAbv][game_date] = bx_scoreDF
+                team_nameAbv = nba_teams_dict[teamKey]
 
-browser.quit()
+                # have to select tables parent to read into pandas
+                bx_parent = bx_score.find_element_by_xpath('..')
+                bx_scoreDF = pd.read_html(bx_parent.get_attribute('innerHTML'))[0]
 
+                team_boxscores_dict[team_nameAbv][game_date] = bx_scoreDF
 
+        except:
 
+            pickle.dump([iGame, team_boxscores_dict], open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
+            sys.exit()
 
+    browser.quit()
 
+    # save boxscores
+    pickle.dump([iGame, team_boxscores_dict], open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
 
-player_tableContainer = playerPage.find('div', {'class': 'nba-stat-table__overflow'})
+    return team_boxscores_dict
 
-player_df = pd.read_html(str(player_tableContainer))[0]
+# player_tableContainer = playerPage.find('div', {'class': 'nba-stat-table__overflow'})
+# 
+# player_df = pd.read_html(str(player_tableContainer))[0]
 
 # columns of interest: player, team, age, pts (points),
 # fg% (field goal %), 3P%, FT%, REB, AST, TOV (turn overs), STL (steals),
 # BLK, PF
-player_df = player_df[['PLAYER', 'TEAM', 'W', 'L', 'AGE', 'PTS', 'FG%',
-                          '3P%', 'FT%', 'REB', 'AST', 'TOV', 'STL',
-                          'BLK', 'PF']]
+# player_df = player_df[['PLAYER', 'TEAM', 'W', 'L', 'AGE', 'PTS', 'FG%',
+#                        '3P%', 'FT%', 'REB', 'AST', 'TOV', 'STL',
+#                        'BLK', 'PF']]
+#
+# boxscore_df = pd.read_html(str(boxscore_tableContainer))[0]
+#
+# boxscore_df.rename(columns={boxscore_df.columns[1]: 'Vs'}, inplace=True)
+#
+# boxscore_df = boxscore_df[['Team', 'Vs', 'W/L', 'PTS', 'FG%',
+#                            '3P%', 'FT%', 'REB', 'AST', 'STL', 'BLK', 'TOV']]
+# # clean up matchup column
+# boxscore_df['Vs'] = boxscore_df.apply(
+#     lambda row: row['Vs'].replace(row['Team'], '').replace('vs. ', '').replace('@ ', ''),
+#     axis=1)
+#
+# # Transform W/L column to binary outcome
+# boxscore_df['W/L'] = boxscore_df.apply(lambda row: 1 if row['W/L'] == 'W' else 0, axis=1)
+#
+# # Exploratory Analysis
+#
+# # --- Team's Top 5 Scorers Predictive of W/L vs Other Team ---
+# n_players = 10
+# topN_teamScorers = player_df.sort_values(['PTS'], ascending=False).groupby('TEAM').head(n_players)
+#
+# teams = topN_teamScorers['TEAM'].unique()
+#
+# teams_avgPts = np.empty([len(boxscore_df), n_players * 2])
+# for iGame in range(len(boxscore_df)):
+#     team1 = boxscore_df['Team'][iGame].strip()
+#     team2 = boxscore_df['Vs'][iGame].strip()
+#
+#     team1_avgPts = topN_teamScorers[topN_teamScorers['TEAM'] == team1]['PTS'].values
+#     team2_avgPts = topN_teamScorers[topN_teamScorers['TEAM'] == team2]['PTS'].values
+#
+#     teams_avgPts[iGame, :] = np.append(team1_avgPts, team2_avgPts, axis=0)
+#
+# y = boxscore_df['W/L'].values
+#
+# clf = LogisticRegression(random_state=0, penalty='l2', max_iter=200).fit(teams_avgPts, y)
 
-
-
-boxscore_df = pd.read_html(str(boxscore_tableContainer))[0]
-
-boxscore_df.rename(columns={boxscore_df.columns[1]: 'Vs'}, inplace=True)
-
-boxscore_df = boxscore_df[['Team', 'Vs', 'W/L', 'PTS', 'FG%',
-                                   '3P%', 'FT%', 'REB', 'AST', 'STL', 'BLK', 'TOV']]
-# clean up matchup column
-boxscore_df['Vs'] = boxscore_df.apply(lambda row: row['Vs'].replace(row['Team'], '').replace('vs. ', '').replace('@ ', ''),
-                      axis=1)
-
-# Transform W/L column to binary outcome
-boxscore_df['W/L'] = boxscore_df.apply(lambda row: 1 if row['W/L'] == 'W' else 0, axis = 1)
-
-# Exploratory Analysis
-
-# --- Team's Top 5 Scorers Predictive of W/L vs Other Team ---
-n_players = 10
-topN_teamScorers = player_df.sort_values(['PTS'], ascending=False).groupby('TEAM').head(n_players)
-
-teams = topN_teamScorers['TEAM'].unique()
-
-teams_avgPts = np.empty([len(boxscore_df), n_players*2])
-for iGame in range(len(boxscore_df)):
-    team1 = boxscore_df['Team'][iGame].strip()
-    team2 = boxscore_df['Vs'][iGame].strip()
-
-    team1_avgPts = topN_teamScorers[topN_teamScorers['TEAM'] == team1]['PTS'].values
-    team2_avgPts = topN_teamScorers[topN_teamScorers['TEAM'] == team2]['PTS'].values
-
-    teams_avgPts[iGame, :] = np.append(team1_avgPts, team2_avgPts, axis=0)
-
-y = boxscore_df['W/L'].values
-
-clf = LogisticRegression(random_state=0, penalty='l2', max_iter=200).fit(teams_avgPts, y)
-
-# Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print(player_df.head())
-    print(boxscore_df.head())
-    print(f'Win Loss Classifier Accuracy: {round(clf.score(teams_avgPts, y) * 100,2)}%')
+    team_boxscores_dict = scrape_boxscores()
