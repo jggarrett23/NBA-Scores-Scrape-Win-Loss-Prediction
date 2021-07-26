@@ -20,16 +20,15 @@ from typing import Dict
 
 warnings.filterwarnings('ignore')
 
-
 headers = {
     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36'}
 
 parentDir = r'D:\sportsScrape'
-saveDir = os.path.join(parentDir, r'data')
+saveDir = os.path.join(parentDir, r'../data')
 
 # read in team names and abbreviations
 nba_teams_dict = {}
-with open('nba_teamNames.txt') as f:
+with open('../nba_teamNames.txt') as f:
     for line in f:
         (key, val) = line.split(',')
         nba_teams_dict[key] = val.strip()
@@ -61,13 +60,12 @@ boxscore_html = browser.execute_script('return document.body.innerHTML')
 boxscore_page = soup(boxscore_html, 'html.parser')
 boxscore_tableContainer = boxscore_page.find('div', {'class': 'nba-stat-table__overflow'})
 
-nGames_text = boxscore_page.find('div',{'class':'stats-table-pagination__info'}).getText().split('|')[0]
+nGames_text = boxscore_page.find('div', {'class': 'stats-table-pagination__info'}).getText().split('|')[0]
 nGames = int(re.findall(r'\b\d+\b', nGames_text)[0])
 
 
 # Scrape Wins / Losses For Each Game
-def scrape_gameSummary_boxscore () -> pd.DataFrame:
-
+def scrape_gameSummary_boxscore() -> pd.DataFrame:
     boxscore_df = pd.read_html(str(boxscore_tableContainer))[0]
 
     boxscore_df.rename(columns={boxscore_df.columns[1]: 'Vs', boxscore_df.columns[2]: 'Date'}, inplace=True)
@@ -90,12 +88,16 @@ def scrape_gameSummary_boxscore () -> pd.DataFrame:
 game_container = boxscore_tableContainer.find('tbody')
 game_container = game_container.findAll('tr')
 
+# only select even games to avoid duplicate games
+game_container = [game for i, game in enumerate(game_container) if not i % 2]
+
 # Check for previously scraped games to avoid redundancy
 if os.path.isfile(os.path.join(saveDir, 'scraped_gamesList.pickle')):
     prevScraped_games = pickle.load(open(os.path.join(saveDir, 'scraped_gamesList.pickle'), 'rb'))
 
     # remove duplicate games
-    game_container = [game for game in game_container if game.select_one('td:nth-child(2)').find('a')['href'][7:] not in prevScraped_games]
+    game_container = [game for game in game_container if
+                      game.select_one('td:nth-child(2)').find('a')['href'][7:] not in prevScraped_games]
 
     team_boxscores_dict = pickle.load(open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'rb'))
 else:
@@ -112,20 +114,20 @@ def scrape_player_gameBoxscores() -> Dict:
     :rtype: Dict
     """
     # select even game number to avoid duplicates
-    for iGame in tqdm(range(0, len(game_container), 2)):
+    for iGame in tqdm(range(0, len(game_container))):
         game = game_container[iGame]
         g = game.select_one('td:nth-child(2)')
         game_date = game.select_one('td:nth-child(3)').text.strip()
 
         # insert a sleep in the script to prevent scraping too fast
-        #sleep_time = 60 * np.random.random()  # seconds
-        #time.sleep(sleep_time)
+        # sleep_time = 60 * np.random.random()  # seconds
+        # time.sleep(sleep_time)
 
         # get games boxscore
         try:
             game_boxscore_link = game.select_one('td:nth-child(2)').find('a')['href'][7:]
 
-            browser.get( parent_link + game_boxscore_link)
+            browser.get(parent_link + game_boxscore_link)
 
             browser.execute_script("window.scrollTo(0,500)")
 
@@ -139,7 +141,7 @@ def scrape_player_gameBoxscores() -> Dict:
 
                 # make sure that the team name matches with the dict keys
                 teamKey = \
-                [key for key in nba_teams_dict.keys() for substring in team_name.split(' ') if substring in key][0]
+                    [key for key in nba_teams_dict.keys() for substring in team_name.split(' ') if substring in key][0]
 
                 team_nameAbv = nba_teams_dict[teamKey]
 
