@@ -1,7 +1,6 @@
 #  TODO: Save list of game links already scraped to decrease scraping time
 
 import pandas as pd
-import numpy as np
 from bs4 import BeautifulSoup as soup
 import requests
 from selenium import webdriver
@@ -13,12 +12,14 @@ import re
 import time
 import os
 import sys
-from datetime import datetime
+
 from tqdm import tqdm
+import warnings
 
 from typing import Dict
 
-startTime = datetime.now()
+warnings.filterwarnings('ignore')
+
 
 headers = {
     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36'}
@@ -150,7 +151,9 @@ def scrape_player_gameBoxscores() -> Dict:
 
                 prevScraped_games.append(game_boxscore_link)
 
-        except:
+        except Exception as e:
+
+            print(e)
 
             pickle.dump(team_boxscores_dict, open(os.path.join(saveDir, 'teamBoxscores_dict.pickle'), 'wb'))
             pickle.dump(prevScraped_games, open(os.path.join(saveDir, 'scraped_gamesList.pickle'), 'wb'))
@@ -203,6 +206,8 @@ def scrape_player_gameBoxscores() -> Dict:
 
 if __name__ == '__main__':
 
+    startTime = time.perf_counter()
+
     if os.path.isfile(os.path.join(saveDir, 'all_gamesBoxscores_summary.csv')):
         boxscore_df = pd.read_csv(os.path.join(saveDir, 'all_gamesBoxscores_summary.csv'))
 
@@ -210,3 +215,5 @@ if __name__ == '__main__':
             boxscore_df = scrape_gameSummary_boxscore()
 
     team_boxscores_dict = scrape_player_gameBoxscores()
+
+    print(f'Code took {time.perf_counter() - startTime} seconds')
