@@ -44,4 +44,4 @@ def scrape_playerStats() -> pd.DataFrame:
 
 if __name__ == '__main__':
     player_allGame_stats = scrape_playerStats()
-    player_allGame_stats.head()
+    print(player_allGame_stats.head())
