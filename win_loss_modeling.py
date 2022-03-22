@@ -1,58 +1,58 @@
-import pandas as pd
 import pickle
 import numpy as np
 import os
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelBinarizer, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from typing import Iterable
+
+# TODO: Problem: Multi-classification of winning team
+#  Use LogisticModel, Ensemble Classifiers, and K Nearest Neighbors to classify the winning team
 
 parentDir = r'D:\sportsScrape'
 dataDir = os.path.join(parentDir, r'data')
 
-# TODO: Move feature matrix creation into preprocess_data.py
+nba_dataset = pickle.load(open(os.path.join(dataDir, 'nba_dataset.pickle'), 'rb'))
 
-# Load data
-playerStats = pickle.load(open(os.path.join(dataDir, 'processed_playerStats.pickle'), 'rb'))
-gameBoxscores = pd.read_csv(os.path.join(dataDir, 'all_gamesBoxscores_summary.csv'))
+allGames_features = nba_dataset['allGames_features']
+allGames_labels = nba_dataset['allGames_labels']
+allGames_info = nba_dataset['allGames_info']
+teams = nba_dataset['teams']
+stat_labels = nba_dataset['stat_featureLabels']
 
-gameBoxscores['Date'] = gameBoxscores['Date'].apply(lambda x: pd.to_datetime(x))
+teams = np.sort(teams)
+teams_binarized = LabelBinarizer().fit(teams)
 
-# select only even games to avoid duplicates
-away_points = gameBoxscores.loc[range(1, len(gameBoxscores), 2), 'PTS']
+allGames_labels_dense = teams_binarized.transform(allGames_labels)
 
-gameBoxscores = gameBoxscores.rename(columns={'PTS': 'HomePTs'})
-gameBoxscores = gameBoxscores.iloc[range(0, len(gameBoxscores), 2),]
-gameBoxscores['AwayPTs'] = away_points.to_numpy()
+X_train, X_test, y_train, y_test = train_test_split(allGames_features, allGames_labels_dense,
+                                                    test_size=0.3, shuffle=True, random_state=123)
 
-gameBoxscores = gameBoxscores.sort_values(by='Date')
 
-# features are going to be the average stats of the top 5 players with the most minutes from each team
-for iRow, game in gameBoxscores.iterrows():
-    home_team = game.Team.strip()
-    away_team = game.Vs.strip()
+# TODO: convert into class with methods fit and transform to use in sklearn pipeline
 
-    homeTeam_playerStats = playerStats[home_team]
-    awayTeam_playerStats = playerStats[away_team]
+# Scale data according to stats for both teams (e.g., PTS should be scaled to pts from both team, not independent)
+def custom_stats_scaler() -> np.array:
 
-    homeTeam_dates = np.unique(homeTeam_playerStats.Date)
-    awayTeam_dates = np.unique(awayTeam_playerStats.Date)
+    for col_start in range(0, 35, 5):
+        col_range1 = np.asarray([*range(col_start, col_start+5)])
+        col_range2 = col_range1 + 35
 
-    homeTeam_prevGame_idx = np.where(homeTeam_dates == game.Date)[0][0]
-    awayTeam_prevGame_idx = np.where(awayTeam_dates == game.Date)[0][0]
+        X_subset = np.hstack((X_train[:, col_range1], X_train[:, col_range2]))
 
-    if homeTeam_prevGame_idx > 0:
-        homeTeam_prevGame_date = homeTeam_dates[homeTeam_prevGame_idx - 1]
-    else:
-        homeTeam_prevGame_date = homeTeam_dates[homeTeam_prevGame_idx]
+        stat_min = np.min(X_subset)
+        stat_max = np.max(X_subset)
 
-    if awayTeam_prevGame_idx > 0:
-        awayTeam_prevGame_date = homeTeam_dates[awayTeam_prevGame_idx - 1]
-    else:
-        awayTeam_prevGame_date = homeTeam_dates[awayTeam_prevGame_idx]
+        X_train[:, col_range1] = (X_train[:, col_range1] - stat_min) / (stat_max - stat_min)
+        X_train[:, col_range2] = (X_train[:, col_range2] - stat_min) / (stat_max - stat_min)
 
-    homePlayer_prevGameStats = homeTeam_playerStats[homeTeam_playerStats['Date'] == homeTeam_prevGame_date]
-    awayPlayer_prevGameStats = awayTeam_playerStats[awayTeam_playerStats['Date'] == awayTeam_prevGame_date]
+    return X_train
 
-    # TODO: put player stats into a matrix where each row is home team players and away team players
-    # TODO: figure out best way to represent single player with multiple features.
-    #  That way we can figure out which players are contributing the most to classifier accuracy.
-    #  Or keep the player stats as separate features so we know what job they do that is most important
-    #  Maybe have columns for stats for each top N players with most average minutes.
-    #  Then columns for stats averaged across the rest of the players.
+
+foo = 0
+
+
+

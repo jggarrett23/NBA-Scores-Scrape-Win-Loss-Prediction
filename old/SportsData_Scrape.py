@@ -6,7 +6,6 @@ import requests
 from selenium import webdriver
 import pickle
 from collections import defaultdict
-from sklearn.linear_model import LogisticRegression
 import re
 
 import time
